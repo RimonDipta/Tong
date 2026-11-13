@@ -26,11 +26,19 @@ const app = express();
 
 const httpServer = http.createServer(app);
 
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+/*
+ * Comma-separated list of allowed web origins.
+ * Trailing slashes are ignored because browsers
+ * never send one in the Origin header.
+ */
+const CLIENT_URLS = (process.env.CLIENT_URL || "http://localhost:5173")
+  .split(",")
+  .map((url) => url.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: CLIENT_URL,
+    origin: CLIENT_URLS,
     credentials: true,
   },
 });
@@ -40,7 +48,7 @@ registerSocketHandlers(io);
 
 app.use(
   cors({
-    origin: CLIENT_URL,
+    origin: CLIENT_URLS,
     credentials: true,
   }),
 );
