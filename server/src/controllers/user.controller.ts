@@ -24,7 +24,9 @@ export async function searchUsers(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const regex = new RegExp(query, "i");
+    const escaped = query.slice(0, 50).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    const regex = new RegExp(escaped, "i");
 
     const users = await User.find({
       _id: {

@@ -1,41 +1,26 @@
-import type { Server, Socket } from "socket.io";
+import type { Server } from "socket.io";
 
 let io: Server | null = null;
-
-const onlineUsers = new Map<string, string>();
 
 export function initializeSocketService(socketServer: Server) {
   io = socketServer;
 }
 
-export function registerUserSocket(userId: string, socketId: string) {
-  onlineUsers.set(userId, socketId);
+export function userRoom(userId: string) {
+  return `user:${userId}`;
 }
 
-export function unregisterUserSocket(userId: string, socketId: string) {
-  const currentSocketId = onlineUsers.get(userId);
-
-  if (currentSocketId === socketId) {
-    onlineUsers.delete(userId);
-  }
+export function conversationRoom(conversationId: string) {
+  return `conversation:${conversationId}`;
 }
 
-export function getUserSocketId(userId: string) {
-  return onlineUsers.get(userId);
-}
-
+/*
+ * Every socket a user opens joins their personal
+ * room, so emitting to the room reaches all of
+ * that user's tabs and devices.
+ */
 export function emitToUser(userId: string, event: string, data: unknown) {
-  if (!io) {
-    return;
-  }
-
-  const socketId = getUserSocketId(userId);
-
-  if (!socketId) {
-    return;
-  }
-
-  io.to(socketId).emit(event, data);
+  io?.to(userRoom(userId)).emit(event, data);
 }
 
 export function emitToConversation(
@@ -43,13 +28,27 @@ export function emitToConversation(
   event: string,
   data: unknown,
 ) {
-  if (!io) {
+  io?.to(conversationRoom(conversationId)).emit(event, data);
+}
+
+export function addUsersToConversationRoom(
+  userIds: string[],
+  conversationId: string,
+) {
+  if (!io || userIds.length === 0) {
     return;
   }
 
-  io.to(`conversation:${conversationId}`).emit(event, data);
+  io.in(userIds.map(userRoom)).socketsJoin(conversationRoom(conversationId));
 }
 
-export function getOnlineUsers() {
-  return onlineUsers;
+export function removeUsersFromConversationRoom(
+  userIds: string[],
+  conversationId: string,
+) {
+  if (!io || userIds.length === 0) {
+    return;
+  }
+
+  io.in(userIds.map(userRoom)).socketsLeave(conversationRoom(conversationId));
 }

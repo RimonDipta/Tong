@@ -9,10 +9,16 @@ import {
 } from "../utils/token.js";
 import { loginSchema, registerSchema } from "../utils/validation.js";
 
-const refreshCookieOptions = {
+const isProduction = process.env.NODE_ENV === "production";
+
+const baseCookieOptions = {
   httpOnly: true,
-  secure: false,
-  sameSite: "lax" as const,
+  secure: isProduction,
+  sameSite: (isProduction ? "none" : "lax") as "none" | "lax",
+};
+
+const refreshCookieOptions = {
+  ...baseCookieOptions,
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
@@ -183,11 +189,7 @@ export async function refresh(req: Request, res: Response) {
 }
 
 export async function logout(_req: Request, res: Response) {
-  res.clearCookie("refreshToken", {
-    httpOnly: true,
-    secure: false,
-    sameSite: "lax",
-  });
+  res.clearCookie("refreshToken", baseCookieOptions);
 
   return res.json({
     success: true,

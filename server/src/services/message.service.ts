@@ -12,6 +12,36 @@ export interface MessageAttachment {
   resourceType?: string;
 }
 
+/*
+ * Attachments arrive from the client after an
+ * upload, so only keep known fields and only
+ * accept https URLs.
+ */
+function sanitizeAttachment(attachment: MessageAttachment): MessageAttachment {
+  if (
+    !attachment ||
+    typeof attachment.url !== "string" ||
+    !attachment.url.startsWith("https://") ||
+    typeof attachment.name !== "string" ||
+    typeof attachment.type !== "string"
+  ) {
+    throw new Error("Invalid attachment");
+  }
+
+  return {
+    url: attachment.url,
+    name: attachment.name.slice(0, 255),
+    type: attachment.type.slice(0, 120),
+    size: Number(attachment.size) || 0,
+    publicId:
+      typeof attachment.publicId === "string" ? attachment.publicId : undefined,
+    resourceType:
+      typeof attachment.resourceType === "string"
+        ? attachment.resourceType
+        : undefined,
+  };
+}
+
 interface CreateMessageInput {
   conversationId: string;
   userId: string;
@@ -44,6 +74,8 @@ export async function createMessage({
   if (attachments.length > 5) {
     throw new Error("You can attach a maximum of 5 files");
   }
+
+  const cleanAttachments = attachments.map(sanitizeAttachment);
 
   const conversation = await Conversation.findOne({
     _id: conversationId,
@@ -80,7 +112,7 @@ export async function createMessage({
 
     content: cleanContent,
 
-    attachments,
+    attachments: cleanAttachments,
 
     replyTo: replyToId,
 
