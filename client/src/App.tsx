@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import ProtectedRoute from "./components/ProtectedRoute";
-
+import { Spinner } from "./components/ui/ConfirmDialog";
 import { useAuth } from "./context/AuthContext";
 
 import Chat from "./pages/Chat";
@@ -14,8 +14,12 @@ function App() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-500">
-        Loading Tong...
+      <div
+        className="flex h-dvh items-center justify-center bg-[var(--bg)] text-zinc-500"
+        role="status"
+        aria-label="Loading Tong"
+      >
+        <Spinner size={22} />
       </div>
     );
   }
@@ -38,7 +42,7 @@ function App() {
       />
 
       <Route element={<ProtectedRoute />}>
-        <Route path="/chat" element={<Chat />} />
+        <Route path="/chat/:conversationId?" element={<Chat />} />
 
         <Route path="/profile" element={<Profile />} />
       </Route>

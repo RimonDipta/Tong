@@ -1,55 +1,43 @@
-import {
-  ArrowLeft,
-  Camera,
-  Check,
-  Loader2,
-  Save,
-  UserRound,
-} from "lucide-react";
+import { ArrowLeft, Camera, Loader2, LogOut, Save } from "lucide-react";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 
 import { useNavigate } from "react-router-dom";
 
+import Avatar from "../components/ui/Avatar";
+import { useToast } from "../components/ui/Toast";
 import { useAuth } from "../context/AuthContext";
-import api from "../lib/api";
+import api, { getErrorMessage } from "../lib/api";
 
 export default function Profile() {
   const navigate = useNavigate();
 
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
+
+  const toast = useToast();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [name, setName] = useState("");
+  const [name, setName] = useState(user?.name || "");
 
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(user?.username || "");
 
-  const [bio, setBio] = useState("");
+  const [bio, setBio] = useState(user?.bio || "");
 
-  const [avatar, setAvatar] = useState("");
+  const [avatar, setAvatar] = useState(user?.avatar || "");
 
   const [saving, setSaving] = useState(false);
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  const [message, setMessage] = useState("");
-
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    setName(user.name || "");
-    setUsername(user.username || "");
-    setBio(user.bio || "");
-    setAvatar(user.avatar || "");
-  }, [user]);
+  const dirty =
+    name.trim() !== (user?.name || "") ||
+    username !== (user?.username || "") ||
+    bio.trim() !== (user?.bio || "");
 
   async function handleSaveProfile() {
-    setMessage("");
     setError("");
 
     try {
@@ -70,9 +58,9 @@ export default function Profile() {
       setBio(updatedUser.bio || "");
       setAvatar(updatedUser.avatar || "");
 
-      setMessage(response.data.message || "Profile updated successfully.");
-    } catch (error: any) {
-      setError(error?.response?.data?.message || "Failed to update profile.");
+      toast.success("Profile saved");
+    } catch (saveError) {
+      setError(getErrorMessage(saveError, "Couldn't save your profile."));
     } finally {
       setSaving(false);
     }
@@ -85,7 +73,6 @@ export default function Profile() {
       return;
     }
 
-    setMessage("");
     setError("");
 
     if (!file.type.startsWith("image/")) {
@@ -133,9 +120,9 @@ export default function Profile() {
         });
       }
 
-      setMessage(response.data.message || "Avatar updated successfully.");
-    } catch (error: any) {
-      setError(error?.response?.data?.message || "Failed to upload avatar.");
+      toast.success("Photo updated");
+    } catch (uploadError) {
+      setError(getErrorMessage(uploadError, "Couldn't upload your photo."));
     } finally {
       setUploadingAvatar(false);
 
@@ -144,8 +131,8 @@ export default function Profile() {
   }
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100">
-      <header className="flex h-16 items-center border-b border-zinc-800/80 bg-[#0b0b0e] px-4">
+    <div className="min-h-dvh bg-[var(--bg)] text-zinc-100">
+      <header className="flex h-16 items-center border-b border-zinc-800/80 bg-[var(--surface)] px-4">
         <button
           type="button"
           onClick={() => navigate("/chat")}
@@ -163,21 +150,11 @@ export default function Profile() {
       </header>
 
       <main className="mx-auto w-full max-w-2xl px-4 py-8">
-        <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-[#0b0b0e]">
+        <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-[var(--surface)]">
           <div className="border-b border-zinc-800/80 px-6 py-8">
             <div className="flex flex-col items-center">
               <div className="relative">
-                <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-zinc-700 bg-zinc-900 text-3xl font-medium text-zinc-500">
-                  {avatar ? (
-                    <img
-                      src={avatar}
-                      alt={name || "Profile avatar"}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <UserRound size={42} />
-                  )}
-                </div>
+                <Avatar name={name} src={avatar} size="xl" />
 
                 <button
                   type="button"
@@ -304,14 +281,6 @@ export default function Profile() {
               />
             </div>
 
-            {message && (
-              <div className="flex items-center gap-2 rounded-lg border border-emerald-900/40 bg-emerald-950/20 px-3 py-2.5 text-xs text-emerald-400">
-                <Check size={14} />
-
-                {message}
-              </div>
-            )}
-
             {error && (
               <div className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2.5 text-xs text-red-400">
                 {error}
@@ -321,7 +290,7 @@ export default function Profile() {
             <button
               type="button"
               onClick={handleSaveProfile}
-              disabled={saving}
+              disabled={saving || !dirty}
               className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-zinc-100 text-sm font-medium text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-600"
             >
               {saving ? (
@@ -332,12 +301,24 @@ export default function Profile() {
               ) : (
                 <>
                   <Save size={16} />
-                  Save changes
+                  {dirty ? "Save changes" : "Saved"}
                 </>
               )}
             </button>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={async () => {
+            await logout();
+            navigate("/login", { replace: true });
+          }}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-800/80 py-3 text-sm font-medium text-red-400 transition hover:bg-red-950/20"
+        >
+          <LogOut size={16} />
+          Log out
+        </button>
       </main>
     </div>
   );

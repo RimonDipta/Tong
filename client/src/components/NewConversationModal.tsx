@@ -1,11 +1,20 @@
-import { useEffect, useState } from "react";
-import api from "../lib/api";
+import { MessageSquarePlus, Search } from "lucide-react";
+import { useState } from "react";
+
+import { useUserSearch } from "../hooks/useUserSearch";
+import api, { getErrorMessage } from "../lib/api";
+import { getUserId } from "../lib/chat";
 import type { User } from "../types/auth";
+import type { Conversation } from "../types/chat";
+
+import Avatar from "./ui/Avatar";
+import { Spinner } from "./ui/ConfirmDialog";
+import Modal from "./ui/Modal";
 
 interface NewConversationModalProps {
   open: boolean;
   onClose: () => void;
-  onConversationCreated: (conversation: any) => void;
+  onConversationCreated: (conversation: Conversation) => void;
 }
 
 export default function NewConversationModal({
@@ -13,233 +22,127 @@ export default function NewConversationModal({
   onClose,
   onConversationCreated,
 }: NewConversationModalProps) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="New message"
+      description="Find someone by name or username."
+      icon={<MessageSquarePlus size={18} />}
+    >
+      {open && (
+        <PersonSearch
+          onClose={onClose}
+          onConversationCreated={onConversationCreated}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function PersonSearch({
+  onClose,
+  onConversationCreated,
+}: Omit<NewConversationModalProps, "open">) {
   const [query, setQuery] = useState("");
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
+
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!open) {
-      setQuery("");
-      setUsers([]);
-      setError("");
-      return;
-    }
+  const { results, searching, error: searchError, active } =
+    useUserSearch(query);
 
-    const trimmedQuery = query.trim();
-
-    if (trimmedQuery.length < 2) {
-      setUsers([]);
-      setError("");
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const response = await api.get("/users/search", {
-          params: {
-            q: trimmedQuery,
-          },
-        });
-
-        setUsers(response.data.users || []);
-      } catch (error) {
-        console.error("Failed to search users:", error);
-        setError("Failed to search users");
-        setUsers([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [query, open]);
-
-  async function handleCreateConversation(user: User) {
-    const userId = user._id || user.id;
-
-    if (!userId) {
-      console.error("Selected user does not have an ID:", user);
-
-      setError("This user does not have a valid ID.");
-      return;
-    }
+  async function startConversation(user: User) {
+    const userId = getUserId(user);
 
     try {
-      setCreating(true);
+      setPendingId(userId);
       setError("");
 
-      console.log("Creating conversation with user:", userId);
-
-      const response = await api.post("/conversations/direct", {
-        userId,
-      });
-
-      console.log("Conversation created:", response.data);
+      const response = await api.post("/conversations/direct", { userId });
 
       onConversationCreated(response.data.conversation);
-
       onClose();
-    } catch (error: any) {
-      console.error("Failed to create conversation:", error);
-
-      console.error("Server response:", error?.response?.data);
-
-      setError(
-        error?.response?.data?.message || "Failed to create conversation",
-      );
+    } catch (createError) {
+      setError(getErrorMessage(createError, "Couldn't start the conversation."));
     } finally {
-      setCreating(false);
+      setPendingId(null);
     }
-  }
-
-  if (!open) {
-    return null;
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <div>
-            <h2 className="text-sm font-medium text-white">New conversation</h2>
+    <div className="px-5 py-5">
+      <label htmlFor="person-search" className="sr-only">
+        Search people
+      </label>
 
-            <p className="mt-1 text-xs text-zinc-500">
-              Search for someone to start chatting with.
-            </p>
-          </div>
+      <div className="field flex items-center gap-2 px-3">
+        <Search size={16} className="shrink-0 text-zinc-500" aria-hidden />
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white/5 hover:text-white"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
+        <input
+          id="person-search"
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by name or username"
+          autoComplete="off"
+          className="h-10 min-w-0 flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+        />
 
-        {/* Search */}
-        <div className="p-5">
-          <div className="relative">
-            <svg
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-4-4" strokeLinecap="round" />
-            </svg>
+        {searching && <Spinner size={15} />}
+      </div>
 
-            <input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by name or username..."
-              className="w-full rounded-xl border border-white/10 bg-white/[0.03] py-3 pl-10 pr-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-white/20"
-            />
-          </div>
+      {(error || searchError) && (
+        <p role="alert" className="alert-error mt-3">
+          {error || searchError}
+        </p>
+      )}
 
-          {/* Error */}
-          {error && (
-            <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-xs text-red-400">
-              {error}
-            </div>
-          )}
+      <div className="mt-3 min-h-48">
+        {!active ? (
+          <p className="py-10 text-center text-xs text-zinc-600">
+            Type at least 2 characters to search.
+          </p>
+        ) : !searching && results.length === 0 ? (
+          <p className="py-10 text-center text-xs text-zinc-600">
+            No one found for “{query.trim()}”.
+          </p>
+        ) : (
+          <ul className="-mx-2">
+            {results.map((user) => {
+              const id = getUserId(user);
 
-          {/* Results */}
-          <div className="mt-4 max-h-80 overflow-y-auto">
-            {loading && (
-              <div className="flex items-center justify-center py-10 text-xs text-zinc-500">
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
-                Searching...
-              </div>
-            )}
-
-            {!loading &&
-              query.trim().length >= 2 &&
-              users.length === 0 &&
-              !error && (
-                <div className="py-10 text-center text-xs text-zinc-600">
-                  No users found.
-                </div>
-              )}
-
-            {!loading &&
-              users.map((user) => {
-                const userId = user._id || user.id;
-
-                return (
+              return (
+                <li key={id}>
                   <button
-                    key={userId || user.username}
                     type="button"
-                    disabled={creating}
-                    onClick={() => handleCreateConversation(user)}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={pendingId !== null}
+                    onClick={() => startConversation(user)}
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-zinc-900 disabled:opacity-60"
                   >
-                    {/* Avatar */}
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-sm font-medium text-white">
-                      {user.avatar ? (
-                        <img
-                          src={user.avatar}
-                          alt={user.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        user.name?.charAt(0).toUpperCase()
-                      )}
-                    </div>
+                    <Avatar
+                      name={user.name}
+                      src={user.avatar}
+                      online={user.isOnline}
+                    />
 
-                    {/* User information */}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-white">
-                          {user.name}
-                        </span>
-
-                        {user.isVerified && (
-                          <span className="text-[10px] text-blue-400">✓</span>
-                        )}
-                      </div>
-
-                      <p className="truncate text-xs text-zinc-500">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-zinc-200">
+                        {user.name}
+                      </span>
+                      <span className="block truncate text-xs text-zinc-500">
                         @{user.username}
-                      </p>
-                    </div>
+                      </span>
+                    </span>
 
-                    {/* Loading indicator */}
-                    {creating && (
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-white" />
-                    )}
+                    {pendingId === id && <Spinner size={15} />}
                   </button>
-                );
-              })}
-          </div>
-        </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );

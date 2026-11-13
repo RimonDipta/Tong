@@ -58,6 +58,8 @@ export interface Conversation {
 
   lastMessage?: Message;
 
+  unreadCount?: number;
+
   createdAt: string;
 
   updatedAt: string;

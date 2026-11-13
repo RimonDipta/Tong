@@ -7,7 +7,11 @@ import {
   type ReactNode,
 } from "react";
 
-import api, { setAccessToken as setApiAccessToken } from "../lib/api";
+import api, {
+  refreshAccessToken,
+  setAccessToken as setApiAccessToken,
+  setAuthHandlers,
+} from "../lib/api";
 import type { AuthResponse, User } from "../types/auth";
 
 interface AuthContextType {
@@ -33,25 +37,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   const [accessToken, setAccessTokenState] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
 
-  function updateAccessToken(token: string | null) {
+  const updateAccessToken = useCallback((token: string | null) => {
     setApiAccessToken(token);
     setAccessTokenState(token);
-  }
-
-  function updateUser(updatedUser: User) {
-    setUser(updatedUser);
-  }
+  }, []);
 
   const refreshCurrentUser = useCallback(async () => {
     const response = await api.get("/users/me");
@@ -59,33 +55,41 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(response.data.user);
   }, []);
 
-  const refreshAccessToken = useCallback(async () => {
-    try {
-      const response = await api.post("/auth/refresh");
-
-      const token = response.data.accessToken;
-
-      updateAccessToken(token);
-
-      await refreshCurrentUser();
-
-      return token;
-    } catch {
-      updateAccessToken(null);
-      setUser(null);
-
-      return null;
-    }
-  }, [refreshCurrentUser]);
+  useEffect(() => {
+    setAuthHandlers({
+      onTokenRefreshed: (token) => setAccessTokenState(token),
+      onSessionExpired: () => {
+        updateAccessToken(null);
+        setUser(null);
+      },
+    });
+  }, [updateAccessToken]);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function initializeAuth() {
-      await refreshAccessToken();
-      setLoading(false);
+      const token = await refreshAccessToken();
+
+      if (token && !cancelled) {
+        try {
+          await refreshCurrentUser();
+        } catch {
+          updateAccessToken(null);
+        }
+      }
+
+      if (!cancelled) {
+        setLoading(false);
+      }
     }
 
     initializeAuth();
-  }, [refreshAccessToken]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshCurrentUser, updateAccessToken]);
 
   async function register(
     name: string,
@@ -134,7 +138,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         login,
         register,
         logout,
-        updateUser,
+        updateUser: setUser,
         refreshCurrentUser,
       }}
     >
@@ -143,6 +147,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
 

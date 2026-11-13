@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
 :root {
+  --bg: #09090b;
+  --surface: #0e0e11;
+  --surface-raised: #141418;
+
   font-family:
     Inter,
     ui-sans-serif,
@@ -9,10 +13,12 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+  font-feature-settings: "cv11", "ss01";
 
   color-scheme: dark;
-  background: #09090b;
+  background: var(--bg);
   color: #fafafa;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -22,11 +28,154 @@
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
   margin: 0;
 }
 
 body {
-  min-height: 100vh;
-  background: #09090b;
+  background: var(--bg);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Scrollbars
+|--------------------------------------------------------------------------
+*/
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #27272a transparent;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Shared component classes
+|--------------------------------------------------------------------------
+*/
+
+@layer components {
+  .field {
+    @apply rounded-lg border border-zinc-800 bg-zinc-900/60 text-sm text-zinc-100 transition outline-none placeholder:text-zinc-600 focus-within:border-zinc-500 focus:border-zinc-500;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-xs font-medium text-zinc-400;
+  }
+
+  .btn-primary {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-100 px-4 text-sm font-medium text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500;
+  }
+
+  .btn-ghost {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100 disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-red-500/90 px-4 text-sm font-medium text-white transition hover:bg-red-500 disabled:opacity-50;
+  }
+
+  .icon-btn {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .alert-error {
+    @apply rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2.5 text-xs text-red-300;
+  }
+
+  .alert-success {
+    @apply rounded-lg border border-emerald-900/50 bg-emerald-950/30 px-3 py-2.5 text-xs text-emerald-300;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid #a1a1aa;
+  outline-offset: 2px;
+}
+
+/*
+ * Text inputs show focus through their container
+ * border instead of a second outline.
+ */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Motion
+|--------------------------------------------------------------------------
+*/
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.fade-in {
+  animation: fade-in 150ms ease-out;
+}
+
+.modal-enter,
+.toast-enter {
+  animation: rise-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.panel-enter {
+  animation: slide-in-right 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.message-enter {
+  animation: rise-in 160ms ease-out;
+}
+
+.typing-dot {
+  animation: typing-dot 1.2s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
