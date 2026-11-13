@@ -79,7 +79,7 @@ export function registerSocketHandlers(io: Server) {
     }
   });
 
-  io.on("connection", async (socket: Socket) => {
+  io.on("connection", (socket: Socket) => {
     const userId = socket.data.userId as string;
 
     socket.join(userRoom(userId));
@@ -88,24 +88,25 @@ export function registerSocketHandlers(io: Server) {
      * Join every conversation up front so the
      * sidebar receives new messages, typing and
      * read receipts for all chats, not just the
-     * open one.
+     * open one. Runs without blocking so the event
+     * handlers below are registered immediately and
+     * no early client events are dropped.
      */
-    try {
-      const conversations = await Conversation.find({
-        participants: userId,
-      }).select("_id");
+    void Conversation.find({ participants: userId })
+      .select("_id")
+      .then((conversations) => {
+        for (const conversation of conversations) {
+          socket.join(conversationRoom(conversation._id.toString()));
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to join conversation rooms:", error);
+      });
 
-      for (const conversation of conversations) {
-        socket.join(conversationRoom(conversation._id.toString()));
-      }
-    } catch (error) {
-      console.error("Failed to join conversation rooms:", error);
-    }
-
-    await markOnline(io, userId, socket.id);
-
-    socket.emit("presence:initial", {
-      userIds: Array.from(onlineUsers.keys()),
+    void markOnline(io, userId, socket.id).then(() => {
+      socket.emit("presence:initial", {
+        userIds: Array.from(onlineUsers.keys()),
+      });
     });
 
     socket.on("conversation:join", async (conversationId: string) => {
