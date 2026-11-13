@@ -19,6 +19,7 @@ import {
   Trash2,
   Upload,
   UserRound,
+  Users,
   Video,
   X,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import type { Conversation, Message, MessageAttachment } from "../types/chat";
 import type { User } from "../types/auth";
 
 import NewConversationModal from "./NewConversationModal";
+import NewGroupModal from "./NewGroupModal";
 
 interface ChatLayoutProps {
   onLogout: () => Promise<void>;
@@ -70,6 +72,25 @@ function getConversationParticipant(
   return conversation.participants.find(
     (user) => getUserId(user) !== currentUserId,
   );
+}
+
+function getGroupMemberCount(conversation: Conversation) {
+  return conversation.participants.length;
+}
+
+function getTypingNames(
+  conversation: Conversation,
+  typingUserIds: string[],
+  currentUserId: string,
+) {
+  return typingUserIds
+    .filter((userId) => userId !== currentUserId)
+    .map(
+      (userId) =>
+        conversation.participants.find(
+          (participant) => getUserId(participant) === userId,
+        )?.name || "Someone",
+    );
 }
 
 function getMessageTime(value: string) {
@@ -193,6 +214,30 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
 
   const [showNewConversation, setShowNewConversation] = useState(false);
 
+  const [showNewGroup, setShowNewGroup] = useState(false);
+
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+
+  const [groupMembers, setGroupMembers] = useState<User[]>([]);
+
+  const [groupAdmins, setGroupAdmins] = useState<string[]>([]);
+
+  const [loadingGroupMembers, setLoadingGroupMembers] = useState(false);
+
+  const [showAddMembers, setShowAddMembers] = useState(false);
+
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
+
+  const [memberSearchResults, setMemberSearchResults] = useState<User[]>([]);
+
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+
+  const [searchingMembers, setSearchingMembers] = useState(false);
+
+  const [addingMembers, setAddingMembers] = useState(false);
+
+  const [addMembersError, setAddMembersError] = useState("");
+
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -223,6 +268,29 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
       selectedParticipant.isOnline ??
       false)
     : false;
+
+  const selectedGroupMemberCount = selectedConversation
+    ? getGroupMemberCount(selectedConversation)
+    : 0;
+
+  const isSelectedGroupAdmin =
+    selectedConversation?.type === "group"
+      ? (selectedConversation.admins || []).includes(currentUserId) ||
+        groupAdmins.includes(currentUserId)
+      : false;
+
+  const selectedTypingNames = selectedConversation
+    ? getTypingNames(selectedConversation, typingUsers, currentUserId)
+    : [];
+
+  const selectedTypingText =
+    selectedTypingNames.length === 0
+      ? ""
+      : selectedTypingNames.length === 1
+        ? `${selectedTypingNames[0]} is typing...`
+        : selectedTypingNames.length === 2
+          ? `${selectedTypingNames[0]} and ${selectedTypingNames[1]} are typing...`
+          : `${selectedTypingNames[0]} and ${selectedTypingNames.length - 1} others are typing...`;
 
   const filteredConversations = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -331,6 +399,54 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
       });
 
       newSocket.emit("conversation:join", conversation._id);
+    });
+
+    newSocket.on(
+      "conversation:members-updated",
+      (data: { conversation: Conversation }) => {
+        const updatedConversation = data.conversation;
+
+        setConversations((previous) =>
+          previous.map((conversation) =>
+            conversation._id === updatedConversation._id
+              ? updatedConversation
+              : conversation,
+          ),
+        );
+
+        if (updatedConversation._id === selectedConversationId) {
+          setGroupMembers(updatedConversation.participants);
+          setGroupAdmins(updatedConversation.admins || []);
+        }
+      },
+    );
+
+    newSocket.on("conversation:removed", (data: { conversationId: string }) => {
+      setConversations((previous) =>
+        previous.filter(
+          (conversation) => conversation._id !== data.conversationId,
+        ),
+      );
+
+      if (selectedConversationId === data.conversationId) {
+        setSelectedConversationId(null);
+        setMessages([]);
+        setShowGroupInfo(false);
+      }
+    });
+
+    newSocket.on("conversation:deleted", (data: { conversationId: string }) => {
+      setConversations((previous) =>
+        previous.filter(
+          (conversation) => conversation._id !== data.conversationId,
+        ),
+      );
+
+      if (selectedConversationId === data.conversationId) {
+        setSelectedConversationId(null);
+        setMessages([]);
+        setShowGroupInfo(false);
+      }
     });
 
     newSocket.on("message:new", (message: Message) => {
@@ -882,7 +998,184 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
     }
 
     setSelectedConversationId(conversationId);
+    setShowGroupInfo(false);
 
+    setMobileSidebarOpen(false);
+  }
+
+  async function openGroupInfo() {
+    if (!selectedConversation || selectedConversation.type !== "group") {
+      return;
+    }
+
+    setShowGroupInfo(true);
+    setGroupMembers(selectedConversation.participants);
+    setGroupAdmins(selectedConversation.admins || []);
+
+    try {
+      setLoadingGroupMembers(true);
+
+      const response = await api.get(
+        `/conversations/${selectedConversation._id}/members`,
+      );
+
+      setGroupMembers(response.data.members || []);
+      setGroupAdmins(response.data.admins || []);
+    } catch (error) {
+      console.error("Failed to load group members:", error);
+    } finally {
+      setLoadingGroupMembers(false);
+    }
+  }
+
+  function closeAddMembers() {
+    setShowAddMembers(false);
+    setMemberSearchQuery("");
+    setMemberSearchResults([]);
+    setSelectedMemberIds([]);
+    setAddMembersError("");
+  }
+
+  function toggleSelectedMember(userId: string) {
+    setSelectedMemberIds((previous) =>
+      previous.includes(userId)
+        ? previous.filter((id) => id !== userId)
+        : [...previous, userId],
+    );
+  }
+
+  useEffect(() => {
+    if (
+      !showAddMembers ||
+      !selectedConversation ||
+      selectedConversation.type !== "group"
+    ) {
+      return;
+    }
+
+    const query = memberSearchQuery.trim();
+
+    if (query.length < 2) {
+      setMemberSearchResults([]);
+      setSearchingMembers(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        setSearchingMembers(true);
+        setAddMembersError("");
+
+        const response = await api.get("/users/search", {
+          params: { q: query },
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const existingMemberIds = new Set(
+          selectedConversation.participants.map((member) => getUserId(member)),
+        );
+
+        const results = (response.data.users || []).filter(
+          (result: User) => !existingMemberIds.has(getUserId(result)),
+        );
+
+        setMemberSearchResults(results);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to search members:", error);
+          setMemberSearchResults([]);
+          setAddMembersError("Failed to search users.");
+        }
+      } finally {
+        if (!cancelled) {
+          setSearchingMembers(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [memberSearchQuery, selectedConversation, showAddMembers]);
+
+  async function handleAddMembers() {
+    if (
+      !selectedConversation ||
+      selectedConversation.type !== "group" ||
+      selectedMemberIds.length === 0 ||
+      addingMembers
+    ) {
+      return;
+    }
+
+    try {
+      setAddingMembers(true);
+      setAddMembersError("");
+
+      const response = await api.post(
+        `/conversations/${selectedConversation._id}/members`,
+        {
+          userIds: selectedMemberIds,
+        },
+      );
+
+      const updatedConversation = response.data.conversation as
+        | Conversation
+        | undefined;
+
+      if (updatedConversation) {
+        setConversations((previous) =>
+          previous.map((conversation) =>
+            conversation._id === updatedConversation._id
+              ? updatedConversation
+              : conversation,
+          ),
+        );
+
+        setGroupMembers(updatedConversation.participants || groupMembers);
+        setGroupAdmins(updatedConversation.admins || groupAdmins);
+      } else {
+        await openGroupInfo();
+      }
+
+      closeAddMembers();
+    } catch (error: any) {
+      console.error("Failed to add group members:", error);
+
+      setAddMembersError(
+        error?.response?.data?.message || "Failed to add members.",
+      );
+    } finally {
+      setAddingMembers(false);
+    }
+  }
+
+  function closeGroupInfo() {
+    closeAddMembers();
+    setShowGroupInfo(false);
+  }
+
+  function handleNewGroup(conversation: Conversation) {
+    setConversations((previous) => {
+      const exists = previous.some((item) => item._id === conversation._id);
+
+      if (exists) {
+        return previous.map((item) =>
+          item._id === conversation._id ? conversation : item,
+        );
+      }
+
+      return [conversation, ...previous];
+    });
+
+    setSelectedConversationId(conversation._id);
+    setShowGroupInfo(false);
     setMobileSidebarOpen(false);
   }
 
@@ -898,6 +1191,7 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
     });
 
     setSelectedConversationId(conversation._id);
+    setShowGroupInfo(false);
 
     setMobileSidebarOpen(false);
   }
@@ -923,13 +1217,25 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
             <p className="text-[11px] text-zinc-600">Messages</p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowNewConversation(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
-          >
-            <Plus size={18} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setShowNewGroup(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
+              aria-label="Create group"
+            >
+              <Users size={17} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowNewConversation(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
+              aria-label="New conversation"
+            >
+              <Plus size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="border-b border-zinc-800/80 p-3">
@@ -966,18 +1272,22 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
             </div>
           ) : (
             filteredConversations.map((conversation) => {
-              const participant = getConversationParticipant(
-                conversation,
-                currentUserId,
-              );
+              const isGroup = conversation.type === "group";
+
+              const participant = isGroup
+                ? null
+                : getConversationParticipant(conversation, currentUserId);
 
               const participantId = getUserId(participant);
 
               const isSelected = conversation._id === selectedConversationId;
 
-              const isOnline = participant
-                ? (onlineUsers[participantId] ?? participant.isOnline ?? false)
-                : false;
+              const isOnline =
+                !isGroup && participant
+                  ? (onlineUsers[participantId] ??
+                    participant.isOnline ??
+                    false)
+                  : false;
 
               return (
                 <button
@@ -989,7 +1299,15 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
                   }`}
                 >
                   <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-800 text-sm font-medium text-zinc-300">
-                    {participant?.avatar ? (
+                    {conversation.avatar ? (
+                      <img
+                        src={conversation.avatar}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : isGroup ? (
+                      <Users size={17} className="text-zinc-400" />
+                    ) : participant?.avatar ? (
                       <img
                         src={participant.avatar}
                         alt=""
@@ -1018,13 +1336,31 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
                     </div>
 
                     <p className="mt-1 truncate text-xs text-zinc-600">
-                      {conversation.lastMessage?.deleted
-                        ? "This message was deleted"
-                        : conversation.lastMessage?.content
-                          ? conversation.lastMessage.content
-                          : conversation.lastMessage?.attachments?.length
-                            ? "Attachment"
-                            : "No messages yet"}
+                      {isGroup
+                        ? `${getGroupMemberCount(conversation)} ${
+                            getGroupMemberCount(conversation) === 1
+                              ? "member"
+                              : "members"
+                          }${
+                            conversation.lastMessage
+                              ? ` · ${
+                                  conversation.lastMessage.deleted
+                                    ? "Message deleted"
+                                    : conversation.lastMessage.content ||
+                                      (conversation.lastMessage.attachments
+                                        ?.length
+                                        ? "Attachment"
+                                        : "No messages yet")
+                                }`
+                              : ""
+                          }`
+                        : conversation.lastMessage?.deleted
+                          ? "This message was deleted"
+                          : conversation.lastMessage?.content
+                            ? conversation.lastMessage.content
+                            : conversation.lastMessage?.attachments?.length
+                              ? "Attachment"
+                              : "No messages yet"}
                     </p>
                   </div>
                 </button>
@@ -1099,7 +1435,15 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
 
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-800 text-xs">
-                  {selectedParticipant?.avatar ? (
+                  {selectedConversation.avatar ? (
+                    <img
+                      src={selectedConversation.avatar}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : selectedConversation.type === "group" ? (
+                    <Users size={16} className="text-zinc-400" />
+                  ) : selectedParticipant?.avatar ? (
                     <img
                       src={selectedParticipant.avatar}
                       alt=""
@@ -1115,9 +1459,10 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
                       .toUpperCase()
                   )}
 
-                  {isParticipantOnline && (
-                    <span className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0b0b0e] bg-emerald-500" />
-                  )}
+                  {selectedConversation.type !== "group" &&
+                    isParticipantOnline && (
+                      <span className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0b0b0e] bg-emerald-500" />
+                    )}
                 </div>
 
                 <div className="min-w-0">
@@ -1127,13 +1472,19 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
 
                   <p className="mt-0.5 truncate text-[11px] text-zinc-600">
                     {typingUsers.length > 0
-                      ? "typing..."
-                      : isParticipantOnline
-                        ? "Online"
-                        : getLastSeenText(
-                            lastSeenUsers[getUserId(selectedParticipant)] ||
-                              selectedParticipant?.lastSeen,
-                          )}
+                      ? selectedTypingText
+                      : selectedConversation.type === "group"
+                        ? `${selectedGroupMemberCount} ${
+                            selectedGroupMemberCount === 1
+                              ? "member"
+                              : "members"
+                          }`
+                        : isParticipantOnline
+                          ? "Online"
+                          : getLastSeenText(
+                              lastSeenUsers[getUserId(selectedParticipant)] ||
+                                selectedParticipant?.lastSeen,
+                            )}
                   </p>
                 </div>
               </div>
@@ -1155,7 +1506,17 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
 
                 <button
                   type="button"
-                  className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-900"
+                  onClick={
+                    selectedConversation.type === "group"
+                      ? openGroupInfo
+                      : undefined
+                  }
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-900 disabled:cursor-default disabled:hover:bg-transparent"
+                  aria-label={
+                    selectedConversation.type === "group"
+                      ? "Group information"
+                      : "Conversation options"
+                  }
                 >
                   <MoreHorizontal size={18} />
                 </button>
@@ -1434,7 +1795,7 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
             <div className="border-t border-zinc-800/80 bg-[#0b0b0e]">
               {typingUsers.length > 0 && (
                 <div className="px-4 pt-2 text-[11px] text-zinc-600">
-                  {selectedParticipant?.name || "Someone"} is typing...
+                  {selectedTypingText}
                 </div>
               )}
 
@@ -1630,10 +1991,335 @@ export default function ChatLayout({ onLogout }: ChatLayoutProps) {
         )}
       </main>
 
+      {showGroupInfo && selectedConversation?.type === "group" && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[1px]">
+          <button
+            type="button"
+            aria-label="Close group information"
+            onClick={closeGroupInfo}
+            className="absolute inset-0 cursor-default"
+          />
+
+          <aside className="relative flex h-full w-full max-w-sm flex-col border-l border-zinc-800 bg-[#0b0b0e] shadow-2xl">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-800/80 px-4">
+              <div>
+                <h2 className="text-sm font-medium text-zinc-200">
+                  {showAddMembers ? "Add members" : "Group information"}
+                </h2>
+                <p className="mt-0.5 text-[11px] text-zinc-600">
+                  {showAddMembers
+                    ? `${selectedMemberIds.length} selected`
+                    : `${groupMembers.length} ${groupMembers.length === 1 ? "member" : "members"}`}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={showAddMembers ? closeAddMembers : closeGroupInfo}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200"
+                aria-label={
+                  showAddMembers
+                    ? "Close add members"
+                    : "Close group information"
+                }
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            {showAddMembers ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="border-b border-zinc-800/80 p-4">
+                  <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3">
+                    <Search size={15} className="text-zinc-600" />
+                    <input
+                      autoFocus
+                      value={memberSearchQuery}
+                      onChange={(event) =>
+                        setMemberSearchQuery(event.target.value)
+                      }
+                      placeholder="Search people"
+                      className="h-10 min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+                    />
+                  </div>
+
+                  {addMembersError && (
+                    <p className="mt-3 rounded-lg border border-red-900/50 bg-red-950/20 px-3 py-2 text-xs text-red-400">
+                      {addMembersError}
+                    </p>
+                  )}
+                </div>
+
+                {selectedMemberIds.length > 0 && (
+                  <div className="border-b border-zinc-800/80 px-4 py-3">
+                    <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+                      Selected
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedMemberIds.map((id) => {
+                        const member = memberSearchResults.find(
+                          (result) => getUserId(result) === id,
+                        );
+
+                        if (!member) {
+                          return null;
+                        }
+
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => toggleSelectedMember(id)}
+                            className="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] text-zinc-300 hover:border-zinc-700"
+                          >
+                            <span className="max-w-28 truncate">
+                              {member.name || member.username}
+                            </span>
+                            <X size={11} className="text-zinc-600" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                  {memberSearchQuery.trim().length < 2 ? (
+                    <div className="px-6 py-12 text-center">
+                      <Search
+                        size={20}
+                        className="mx-auto mb-3 text-zinc-700"
+                      />
+                      <p className="text-xs text-zinc-600">
+                        Search for people to add to this group.
+                      </p>
+                    </div>
+                  ) : searchingMembers ? (
+                    <div className="px-6 py-12 text-center text-xs text-zinc-600">
+                      Searching...
+                    </div>
+                  ) : memberSearchResults.length === 0 ? (
+                    <div className="px-6 py-12 text-center text-xs text-zinc-600">
+                      No available users found.
+                    </div>
+                  ) : (
+                    memberSearchResults.map((member) => {
+                      const memberId = getUserId(member);
+                      const selected = selectedMemberIds.includes(memberId);
+
+                      return (
+                        <button
+                          key={memberId}
+                          type="button"
+                          onClick={() => toggleSelectedMember(memberId)}
+                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${
+                            selected ? "bg-zinc-900" : "hover:bg-zinc-900/60"
+                          }`}
+                        >
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-800 text-sm font-medium text-zinc-300">
+                            {member.avatar ? (
+                              <img
+                                src={member.avatar}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              (member.name || member.username || "?")
+                                .slice(0, 1)
+                                .toUpperCase()
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-zinc-300">
+                              {member.name || member.username}
+                            </p>
+                            <p className="mt-0.5 truncate text-[11px] text-zinc-600">
+                              @{member.username}
+                            </p>
+                          </div>
+
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                              selected
+                                ? "border-zinc-200 bg-zinc-100 text-zinc-900"
+                                : "border-zinc-700 text-transparent"
+                            }`}
+                          >
+                            <Check size={12} />
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="flex gap-2 border-t border-zinc-800/80 p-4">
+                  <button
+                    type="button"
+                    onClick={closeAddMembers}
+                    className="flex-1 rounded-lg border border-zinc-800 px-4 py-2.5 text-xs font-medium text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddMembers}
+                    disabled={addingMembers || selectedMemberIds.length === 0}
+                    className="flex-1 rounded-lg bg-zinc-100 px-4 py-2.5 text-xs font-medium text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-600"
+                  >
+                    {addingMembers
+                      ? "Adding..."
+                      : `Add ${selectedMemberIds.length || ""} ${selectedMemberIds.length === 1 ? "member" : "members"}`}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="border-b border-zinc-800/80 px-5 py-6 text-center">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-zinc-800 text-zinc-400">
+                    {selectedConversation.avatar ? (
+                      <img
+                        src={selectedConversation.avatar}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <Users size={24} />
+                    )}
+                  </div>
+
+                  <h3 className="mt-3 truncate text-base font-medium text-zinc-200">
+                    {selectedConversation.name || "Group conversation"}
+                  </h3>
+
+                  <p className="mt-1 text-xs text-zinc-600">
+                    {groupMembers.length}{" "}
+                    {groupMembers.length === 1 ? "member" : "members"}
+                  </p>
+                </div>
+
+                <div className="border-b border-zinc-800/80 p-4">
+                  {isSelectedGroupAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddMembersError("");
+                        setShowAddMembers(true);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3 text-left transition hover:border-zinc-700 hover:bg-zinc-900"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-800 text-zinc-300">
+                        <Plus size={17} />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-medium text-zinc-300">
+                          Add members
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-zinc-600">
+                          Invite more people to this group
+                        </span>
+                      </span>
+                    </button>
+                  ) : (
+                    <p className="px-1 text-[11px] text-zinc-600">
+                      Only group admins can add members.
+                    </p>
+                  )}
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <div className="px-4 py-3">
+                    <p className="px-2 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+                      Members
+                    </p>
+                  </div>
+
+                  {loadingGroupMembers ? (
+                    <div className="px-6 py-8 text-center text-xs text-zinc-600">
+                      Loading members...
+                    </div>
+                  ) : groupMembers.length === 0 ? (
+                    <div className="px-6 py-8 text-center text-xs text-zinc-600">
+                      No members found.
+                    </div>
+                  ) : (
+                    <div className="px-2 pb-4">
+                      {groupMembers.map((member) => {
+                        const memberId = getUserId(member);
+                        const isAdmin = groupAdmins.includes(memberId);
+                        const isCurrentUser = memberId === currentUserId;
+                        const isOnline =
+                          onlineUsers[memberId] ?? member.isOnline ?? false;
+
+                        return (
+                          <div
+                            key={memberId}
+                            className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-zinc-900/60"
+                          >
+                            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-800 text-sm font-medium text-zinc-300">
+                              {member.avatar ? (
+                                <img
+                                  src={member.avatar}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                (member.name || member.username || "?")
+                                  .slice(0, 1)
+                                  .toUpperCase()
+                              )}
+
+                              {isOnline && (
+                                <span className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#0b0b0e] bg-emerald-500" />
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="truncate text-sm font-medium text-zinc-300">
+                                  {member.name || member.username}
+                                </p>
+
+                                {isCurrentUser && (
+                                  <span className="shrink-0 text-[9px] text-zinc-600">
+                                    You
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="mt-0.5 truncate text-[11px] text-zinc-600">
+                                @{member.username}
+                              </p>
+                            </div>
+
+                            {isAdmin && (
+                              <span className="shrink-0 rounded-full border border-zinc-800 bg-zinc-900 px-2 py-1 text-[9px] font-medium text-zinc-500">
+                                Admin
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </aside>
+        </div>
+      )}
+
       <NewConversationModal
         open={showNewConversation}
         onClose={() => setShowNewConversation(false)}
         onConversationCreated={handleNewConversation}
+      />
+
+      <NewGroupModal
+        open={showNewGroup}
+        onClose={() => setShowNewGroup(false)}
+        onCreated={handleNewGroup}
       />
     </div>
   );
