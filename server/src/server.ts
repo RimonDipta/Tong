@@ -19,6 +19,7 @@ import conversationRoutes from "./routes/conversation.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import avatarRoutes from "./routes/avatar.routes.js";
 
+import { seedDemoData } from "./seed/demo.js";
 import { initializeSocketService } from "./services/socket.service.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 
@@ -126,6 +127,12 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   await connectDatabase();
+
+  try {
+    await seedDemoData();
+  } catch (error) {
+    console.error("Demo seed failed:", error);
+  }
 
   httpServer.listen(PORT, () => {
     console.log(`Tong server running on http://localhost:${PORT}`);

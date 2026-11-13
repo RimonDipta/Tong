@@ -6,6 +6,19 @@ read receipts, reactions, replies, edits, file sharing and online presence.
 - **client/** — React 19, TypeScript, Vite, Tailwind CSS 4, Socket.IO client
 - **server/** — Express 5, TypeScript, MongoDB (Mongoose), Socket.IO, Cloudinary
 
+## Live demo
+
+**[tong-indol.vercel.app](https://tong-indol.vercel.app)**: log in with the demo account:
+
+| Email | Password |
+| --- | --- |
+| `demo@tong.app` | `tongdemo123` |
+
+The demo account comes with a few direct chats (Maya, Arif, Sofia) and three
+groups (Product Team, Weekend Hikers, Book Club), including unread messages,
+replies and reactions. It's shared, so please keep it friendly. The free server
+may take ~30 seconds to wake up on the first request.
+
 ## Features
 
 - Email/password accounts with short-lived access tokens and an httpOnly refresh cookie
@@ -38,6 +51,12 @@ cp .env.example .env   # optional, defaults to http://localhost:5000
 npm install
 npm run dev            # http://localhost:5173
 ```
+
+### Demo data
+
+When the server connects to MongoDB it creates the demo account above and its
+chats, once. If `demo@tong.app` already exists nothing is changed. Set
+`SEED_DEMO=false` to turn this off.
 
 ## API overview
 
